@@ -19,7 +19,7 @@ concurrency:
 env:
   DEPLOY_HOST: 10.11.11.31
   DEPLOY_PORT: "22"
-  DEPLOY_USER: kubespray
+  DEPLOY_USER: root
 
 jobs:
   validate:
@@ -68,26 +68,25 @@ jobs:
       - name: Configure SSH access
         shell: bash
         env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          SSH_PRIVATE_KEY_B64_SECRET: ${{ secrets.SSH_PRIVATE_KEY_B64 }}
+          SSH_PRIVATE_KEY_B64_VAR: ${{ vars.SSH_PRIVATE_KEY_B64 }}
         run: |
           set -euo pipefail
 
-          if [[ -z "${SSH_PRIVATE_KEY}" ]]; then
-            echo "Missing required secret: SSH_PRIVATE_KEY" >&2
-            exit 1
+          SSH_PRIVATE_KEY_B64="${SSH_PRIVATE_KEY_B64_SECRET:-}"
+          if [[ -z "${SSH_PRIVATE_KEY_B64}" ]]; then
+            SSH_PRIVATE_KEY_B64="${SSH_PRIVATE_KEY_B64_VAR:-}"
           fi
 
-          if [[ -z "${SSH_KNOWN_HOSTS}" ]]; then
-            echo "Missing required secret: SSH_KNOWN_HOSTS" >&2
+          if [[ -z "${SSH_PRIVATE_KEY_B64}" ]]; then
+            echo "Missing required GitHub secret or variable: SSH_PRIVATE_KEY_B64" >&2
             exit 1
           fi
 
           install -m 700 -d "$HOME/.ssh"
-          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
+          printf '%s' "$SSH_PRIVATE_KEY_B64" | base64 --decode > "$HOME/.ssh/id_ed25519"
           chmod 600 "$HOME/.ssh/id_ed25519"
-
-          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          touch "$HOME/.ssh/known_hosts"
           chmod 644 "$HOME/.ssh/known_hosts"
 
       - name: Upload repository to the control-plane node
@@ -104,7 +103,8 @@ jobs:
             -czf - . \
           | ssh \
               -o BatchMode=yes \
-              -o StrictHostKeyChecking=yes \
+              -o StrictHostKeyChecking=accept-new \
+              -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
               -p "$DEPLOY_PORT" \
               "$DEPLOY_USER@$DEPLOY_HOST" \
               "set -euo pipefail; rm -rf '$REMOTE_DIR'; mkdir -p '$REMOTE_DIR'; tar -xzf - -C '$REMOTE_DIR'"
@@ -119,7 +119,8 @@ jobs:
 
           ssh \
             -o BatchMode=yes \
-            -o StrictHostKeyChecking=yes \
+            -o StrictHostKeyChecking=accept-new \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
             -p "$DEPLOY_PORT" \
             "$DEPLOY_USER@$DEPLOY_HOST" \
             bash -s -- "$REMOTE_DIR" "${KUBE_CONTEXT:-}" <<'EOF'
@@ -129,31 +130,23 @@ jobs:
           KUBE_CONTEXT="${2:-}"
 
           export PATH="$HOME/.local/bin:$PATH"
+          export KUBECONFIG="${KUBECONFIG:-/etc/kubernetes/admin.conf}"
 
           cd "$REMOTE_DIR"
           ./scripts/install-helm.sh
           ./scripts/helm.sh deps
-
-          if command -v kubectl >/dev/null 2>&1 && kubectl cluster-info >/dev/null 2>&1; then
-            export KUBE_CONTEXT
-            ./scripts/helm.sh deploy
-            exit 0
-          fi
 
           if ! command -v kubectl >/dev/null 2>&1; then
             echo "kubectl is required on $HOSTNAME to deploy this repository." >&2
             exit 1
           fi
 
-          if sudo -n test -f /etc/kubernetes/admin.conf; then
-            sudo -n env \
-              "PATH=$PATH" \
-              "KUBECONFIG=/etc/kubernetes/admin.conf" \
-              "KUBE_CONTEXT=$KUBE_CONTEXT" \
-              bash -lc "set -euo pipefail; cd '$REMOTE_DIR'; ./scripts/helm.sh deploy"
-            exit 0
+          if [[ ! -f "$KUBECONFIG" ]]; then
+            echo "Expected kubeconfig at $KUBECONFIG on $HOSTNAME, but it was not found." >&2
+            exit 1
           fi
 
-          echo "kubectl access failed for user $(whoami), and /etc/kubernetes/admin.conf is not accessible via sudo." >&2
-          exit 1
+          export KUBE_CONTEXT
+          kubectl cluster-info >/dev/null
+          ./scripts/helm.sh deploy
           EOF

@@ -36,9 +36,9 @@ scripts/
 - Your cluster has a default `StorageClass`.
 - DNS for `traefik.renzlab.com` and `grafana.renzlab.com` points to the node IPs that will run Traefik.
 - No other process on the Kubernetes nodes is already binding host ports `80` or `443`.
-- Your GitHub Actions runner can SSH to `10.11.11.31:22` as `kubespray`.
+- Your GitHub Actions runner can SSH to `10.11.11.31:22` as `root`.
 - `kubectl` is already installed on `10.11.11.31`.
-- The `kubespray` user can either access the cluster directly with `kubectl` or can use `sudo` to read `/etc/kubernetes/admin.conf`.
+- `/etc/kubernetes/admin.conf` exists on `10.11.11.31` for cluster access.
 
 ## Risks And Safety Notes
 
@@ -53,8 +53,7 @@ scripts/
 - The cluster has reachable control-plane scrape endpoints if you want full kube-apiserver/controller-manager/scheduler coverage. Some distributions need value tweaks here.
 - Persistent volumes can be provisioned for Grafana and VictoriaMetrics.
 - GitHub repository secrets are configured:
-  - `SSH_PRIVATE_KEY`
-  - `SSH_KNOWN_HOSTS`
+  - `SSH_PRIVATE_KEY_B64`
 - Optional GitHub repository or environment variable:
   - `KUBE_CONTEXT`
 
@@ -86,7 +85,7 @@ scripts/
   - `helm get values monitoring -n monitoring -o yaml > monitoring.backup.yaml`
   - `helm get values networking -n networking -o yaml > networking.backup.yaml`
 - Confirm the remote node can still reach the API server before you start the workflow:
-  - `ssh kubespray@10.11.11.31 kubectl cluster-info`
+  - `ssh root@10.11.11.31 KUBECONFIG=/etc/kubernetes/admin.conf kubectl cluster-info`
 - Roll back a failed deployment:
   - `helm rollback monitoring -n monitoring`
   - `helm rollback networking -n networking`
@@ -105,7 +104,7 @@ scripts/
 - `main` runs validation and then deploys over SSH from the GitHub Actions runner to `10.11.11.31`.
 - Helm is installed only when missing, both on the runner and on the remote node.
 - The workflow expects:
-  - `SSH_PRIVATE_KEY` to contain the private key for `kubespray@10.11.11.31`
-  - `SSH_KNOWN_HOSTS` to contain the host key entry for `10.11.11.31`
+  - `SSH_PRIVATE_KEY_B64` to contain the base64-encoded private key for `root@10.11.11.31`
   - Optional `KUBE_CONTEXT` if the node has multiple kube contexts configured
-- If `kubectl` does not work for `kubespray`, the workflow falls back to `sudo` with `KUBECONFIG=/etc/kubernetes/admin.conf`.
+- The workflow uses `KUBECONFIG=/etc/kubernetes/admin.conf` on the remote node by default.
+- The workflow uses `StrictHostKeyChecking=accept-new`, so it will trust the first host key it sees and fail if the host key later changes.
