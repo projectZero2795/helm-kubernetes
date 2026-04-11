@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+INSTALL_DIR="${HELM_INSTALL_DIR:-$HOME/.local/bin}"
+export PATH="${INSTALL_DIR}:${PATH}"
+
 if command -v helm >/dev/null 2>&1; then
   echo "helm already installed: $(helm version --short)"
   exit 0
@@ -11,7 +14,6 @@ if ! command -v curl >/dev/null 2>&1; then
   exit 1
 fi
 
-INSTALL_DIR="${HELM_INSTALL_DIR:-$HOME/.local/bin}"
 TMP_SCRIPT="$(mktemp)"
 trap 'rm -f "$TMP_SCRIPT"' EXIT
 
