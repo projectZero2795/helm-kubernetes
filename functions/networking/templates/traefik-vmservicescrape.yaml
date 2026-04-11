@@ -1,0 +1,16 @@
+{{- if .Values.monitoring.traefikMetrics.enabled }}
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: {{ include "networking.fullname" . }}-traefik
+  labels:
+    {{- include "networking.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      monitoring.renzlab.com/scrape: traefik
+  endpoints:
+    - port: metrics
+      interval: {{ .Values.monitoring.traefikMetrics.interval }}
+      scrapeTimeout: {{ .Values.monitoring.traefikMetrics.scrapeTimeout }}
+{{- end }}

@@ -1,0 +1,95 @@
+traefik:
+  gateway:
+    enabled: false
+
+  gatewayClass:
+    enabled: false
+
+  ingressClass:
+    enabled: false
+
+  providers:
+    kubernetesCRD:
+      enabled: true
+      allowCrossNamespace: true
+    kubernetesIngress:
+      enabled: false
+
+  deployment:
+    kind: DaemonSet
+
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule
+
+  api:
+    dashboard: true
+    insecure: false
+
+  logs:
+    general:
+      format: json
+    access:
+      enabled: true
+
+  metrics:
+    addInternals: true
+    prometheus:
+      service:
+        enabled: true
+        labels:
+          monitoring.renzlab.com/scrape: traefik
+      serviceMonitor:
+        enabled: false
+
+  ports:
+    web:
+      hostPort: 80
+      expose:
+        default: true
+      http:
+        redirections:
+          entryPoint:
+            to: websecure
+            scheme: https
+            permanent: true
+    websecure:
+      hostPort: 443
+      expose:
+        default: true
+      http:
+        tls:
+          enabled: true
+
+  service:
+    enabled: true
+    type: ClusterIP
+
+routes:
+  dashboard:
+    host: traefik.renzlab.com
+    entryPoints:
+      - websecure
+    tls: {}
+    auth:
+      enabled: false
+      existingSecret: ""
+  grafana:
+    host: grafana.renzlab.com
+    entryPoints:
+      - websecure
+    tls: {}
+    service:
+      name: grafana
+      namespace: monitoring
+      port: 80
+
+monitoring:
+  traefikMetrics:
+    enabled: true
+    interval: 30s
+    scrapeTimeout: 10s

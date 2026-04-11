@@ -1,0 +1,11 @@
+apiVersion: v2
+name: monitoring
+description: Homelab monitoring stack based on VictoriaMetrics.
+type: application
+version: 0.1.0
+appVersion: "1.139.0"
+dependencies:
+  - name: victoria-metrics-k8s-stack
+    version: 0.72.6
+    repository: oci://ghcr.io/victoriametrics/helm-charts
+

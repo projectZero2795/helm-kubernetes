@@ -1,0 +1,11 @@
+apiVersion: v2
+name: networking
+description: Homelab ingress routing based on Traefik.
+type: application
+version: 0.1.0
+appVersion: "3.6.12"
+dependencies:
+  - name: traefik
+    version: 39.0.7
+    repository: https://traefik.github.io/charts
+

@@ -1,0 +1,23 @@
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "networking.fullname" . }}-dashboard-root
+  labels:
+    {{- include "networking.labels" . | nindent 4 }}
+spec:
+  replacePathRegex:
+    regex: ^/$
+    replacement: /dashboard/
+{{- if .Values.routes.dashboard.auth.enabled }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "networking.fullname" . }}-dashboard-auth
+  labels:
+    {{- include "networking.labels" . | nindent 4 }}
+spec:
+  basicAuth:
+    secret: {{ required "routes.dashboard.auth.existingSecret is required when dashboard auth is enabled" .Values.routes.dashboard.auth.existingSecret }}
+{{- end }}
+

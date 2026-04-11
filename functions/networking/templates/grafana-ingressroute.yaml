@@ -1,0 +1,25 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ include "networking.fullname" . }}-grafana
+  labels:
+    {{- include "networking.labels" . | nindent 4 }}
+spec:
+  entryPoints:
+    {{- range .Values.routes.grafana.entryPoints }}
+    - {{ . }}
+    {{- end }}
+  routes:
+    - match: Host(`{{ .Values.routes.grafana.host }}`)
+      kind: Rule
+      services:
+        - name: {{ .Values.routes.grafana.service.name }}
+          namespace: {{ .Values.routes.grafana.service.namespace }}
+          port: {{ .Values.routes.grafana.service.port }}
+  {{- with .Values.routes.grafana.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- else }}
+  tls: {}
+  {{- end }}
+

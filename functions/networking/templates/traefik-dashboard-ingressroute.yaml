@@ -1,0 +1,29 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ include "networking.fullname" . }}-dashboard
+  labels:
+    {{- include "networking.labels" . | nindent 4 }}
+spec:
+  entryPoints:
+    {{- range .Values.routes.dashboard.entryPoints }}
+    - {{ . }}
+    {{- end }}
+  routes:
+    - match: Host(`{{ .Values.routes.dashboard.host }}`)
+      kind: Rule
+      middlewares:
+        - name: {{ include "networking.fullname" . }}-dashboard-root
+        {{- if .Values.routes.dashboard.auth.enabled }}
+        - name: {{ include "networking.fullname" . }}-dashboard-auth
+        {{- end }}
+      services:
+        - name: api@internal
+          kind: TraefikService
+  {{- with .Values.routes.dashboard.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- else }}
+  tls: {}
+  {{- end }}
+
