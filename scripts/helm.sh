@@ -149,6 +149,40 @@ wait_for_release_absent() {
   return 1
 }
 
+cleanup_release_state() {
+  local target="$1"
+  local namespace="$2"
+  local message="$3"
+
+  echo "$message" >&2
+  helm uninstall "$target" --namespace "$namespace" --wait --ignore-not-found >/dev/null 2>&1 || true
+  wait_for_release_absent "$target" "$namespace"
+}
+
+recover_failed_install_state() {
+  local target="$1"
+  local namespace="$2"
+  local output="$3"
+
+  if [[ "$output" == *"has no deployed releases"* ]]; then
+    cleanup_release_state \
+      "$target" \
+      "$namespace" \
+      "Release $target in namespace $namespace has no deployed revision. Cleaning up failed bootstrap release before retry."
+    return 0
+  fi
+
+  if [[ "$output" == *"original install error:"* && "$output" == *"uninstallation completed with"* ]]; then
+    cleanup_release_state \
+      "$target" \
+      "$namespace" \
+      "Helm left release $target in namespace $namespace in an inconsistent post-install cleanup state. Waiting for release metadata to clear before retry."
+    return 0
+  fi
+
+  return 1
+}
+
 recover_locked_release() {
   local target="$1"
   local namespace="$2"
@@ -186,53 +220,55 @@ deploy_target() {
   local namespace
   local output
   local retry
+  local attempt
 
   namespace="$(namespace_for "$target")"
 
-  if output="$(run_upgrade_install "$target" "$namespace" 2>&1)"; then
-    printf '%s\n' "$output"
-    return 0
-  fi
-
-  printf '%s\n' "$output" >&2
-
-  if [[ "$output" == *"has no deployed releases"* ]]; then
-    echo "Release $target in namespace $namespace has no deployed revision. Cleaning up failed bootstrap release and retrying once." >&2
-    helm uninstall "$target" --namespace "$namespace" --wait --ignore-not-found >&2
-    wait_for_release_absent "$target" "$namespace"
-    run_upgrade_install "$target" "$namespace"
-    return 0
-  fi
-
-  if [[ "$output" == *"another operation (install/upgrade/rollback) is in progress"* ]]; then
-    for retry in 1 2 3; do
-      echo "Release $target in namespace $namespace is locked by another Helm operation. Waiting 15 seconds before retry $retry/3." >&2
-      sleep 15
-      if output="$(run_upgrade_install "$target" "$namespace" 2>&1)"; then
-        printf '%s\n' "$output"
-        return 0
-      fi
-      printf '%s\n' "$output" >&2
-      if [[ "$output" != *"another operation (install/upgrade/rollback) is in progress"* ]]; then
-        break
-      fi
-    done
-
-    if [[ "$output" == *"another operation (install/upgrade/rollback) is in progress"* ]]; then
-      recover_locked_release "$target" "$namespace"
-      run_upgrade_install "$target" "$namespace"
+  for attempt in 1 2 3 4 5; do
+    if output="$(run_upgrade_install "$target" "$namespace" 2>&1)"; then
+      printf '%s\n' "$output"
       return 0
     fi
-  fi
 
-  if [[ "$output" == *"original install error:"* && "$output" == *"uninstallation completed with"* ]]; then
-    echo "Helm left release $target in namespace $namespace in an inconsistent post-install cleanup state. Waiting for release metadata to clear, then retrying once." >&2
-    helm uninstall "$target" --namespace "$namespace" --wait --ignore-not-found >/dev/null 2>&1 || true
-    wait_for_release_absent "$target" "$namespace"
-    run_upgrade_install "$target" "$namespace"
-    return 0
-  fi
+    printf '%s\n' "$output" >&2
 
+    if recover_failed_install_state "$target" "$namespace" "$output"; then
+      continue
+    fi
+
+    if [[ "$output" == *"another operation (install/upgrade/rollback) is in progress"* ]]; then
+      for retry in 1 2 3; do
+        echo "Release $target in namespace $namespace is locked by another Helm operation. Waiting 15 seconds before retry $retry/3." >&2
+        sleep 15
+        if output="$(run_upgrade_install "$target" "$namespace" 2>&1)"; then
+          printf '%s\n' "$output"
+          return 0
+        fi
+        printf '%s\n' "$output" >&2
+
+        if recover_failed_install_state "$target" "$namespace" "$output"; then
+          continue 2
+        fi
+
+        if [[ "$output" != *"another operation (install/upgrade/rollback) is in progress"* ]]; then
+          break
+        fi
+      done
+
+      if [[ "$output" == *"another operation (install/upgrade/rollback) is in progress"* ]]; then
+        recover_locked_release "$target" "$namespace"
+        continue
+      fi
+
+      if recover_failed_install_state "$target" "$namespace" "$output"; then
+        continue
+      fi
+    fi
+
+    return 1
+  done
+
+  echo "Exceeded automatic recovery attempts for release $target in namespace $namespace." >&2
   return 1
 }
 
