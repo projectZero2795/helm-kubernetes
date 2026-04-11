@@ -133,6 +133,22 @@ last_deployed_revision() {
   helm history "$target" --namespace "$namespace" 2>/dev/null | awk 'NR > 1 && $3 == "deployed" {rev=$1} END {print rev}'
 }
 
+wait_for_release_absent() {
+  local target="$1"
+  local namespace="$2"
+  local attempt
+
+  for attempt in $(seq 1 20); do
+    if ! helm status "$target" --namespace "$namespace" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 3
+  done
+
+  echo "Timed out waiting for release $target in namespace $namespace to disappear from Helm state." >&2
+  return 1
+}
+
 recover_locked_release() {
   local target="$1"
   local namespace="$2"
@@ -145,6 +161,7 @@ recover_locked_release() {
     pending-install)
       echo "Release $target in namespace $namespace is stuck in pending-install. Uninstalling the failed release before retry." >&2
       helm uninstall "$target" --namespace "$namespace" --wait --ignore-not-found >&2
+      wait_for_release_absent "$target" "$namespace"
       ;;
     pending-upgrade|pending-rollback)
       deployed_revision="$(last_deployed_revision "$target" "$namespace")"
@@ -154,6 +171,7 @@ recover_locked_release() {
       else
         echo "Release $target in namespace $namespace is stuck in $status with no deployed revision. Uninstalling before retry." >&2
         helm uninstall "$target" --namespace "$namespace" --wait --ignore-not-found >&2
+        wait_for_release_absent "$target" "$namespace"
       fi
       ;;
     *)
@@ -181,6 +199,7 @@ deploy_target() {
   if [[ "$output" == *"has no deployed releases"* ]]; then
     echo "Release $target in namespace $namespace has no deployed revision. Cleaning up failed bootstrap release and retrying once." >&2
     helm uninstall "$target" --namespace "$namespace" --wait --ignore-not-found >&2
+    wait_for_release_absent "$target" "$namespace"
     run_upgrade_install "$target" "$namespace"
     return 0
   fi
@@ -204,6 +223,14 @@ deploy_target() {
       run_upgrade_install "$target" "$namespace"
       return 0
     fi
+  fi
+
+  if [[ "$output" == *"original install error:"* && "$output" == *"uninstallation completed with"* ]]; then
+    echo "Helm left release $target in namespace $namespace in an inconsistent post-install cleanup state. Waiting for release metadata to clear, then retrying once." >&2
+    helm uninstall "$target" --namespace "$namespace" --wait --ignore-not-found >/dev/null 2>&1 || true
+    wait_for_release_absent "$target" "$namespace"
+    run_upgrade_install "$target" "$namespace"
+    return 0
   fi
 
   return 1
