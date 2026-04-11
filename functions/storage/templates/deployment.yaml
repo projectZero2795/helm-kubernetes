@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "storage.fullname" . }}-provisioner
+  labels:
+    {{- include "storage.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "storage.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "storage.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "storage.fullname" . }}-provisioner
+      containers:
+        - name: local-path-provisioner
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - local-path-provisioner
+            {{- if .Values.debug }}
+            - --debug
+            {{- end }}
+            - start
+            - --config
+            - /etc/config/config.json
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: CONFIG_MOUNT_PATH
+              value: /etc/config/
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/config/
+      volumes:
+        - name: config-volume
+          configMap:
+            name: {{ include "storage.fullname" . }}-config
+

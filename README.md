@@ -6,6 +6,7 @@ Function-oriented Helm repo for a fresh Kubernetes cluster.
 
 ```text
 functions/
+  storage/      # local-path dynamic storage bootstrap
   monitoring/   # VictoriaMetrics-based Kubernetes monitoring
   networking/   # Traefik ingress and cross-namespace routes
 scripts/
@@ -16,6 +17,10 @@ scripts/
 
 ## What This Deploys
 
+- `storage`
+  - local-path provisioner
+  - `local-path` StorageClass, marked as the cluster default
+  - dynamic PV provisioning under `/opt/local-path-provisioner` on each node
 - `monitoring`
   - `victoria-metrics-k8s-stack`
   - Grafana
@@ -33,12 +38,12 @@ scripts/
 
 ## Assumptions
 
-- Your cluster has a default `StorageClass`.
 - DNS for `traefik.renzlab.com` and `grafana.renzlab.com` points to the node IPs that will run Traefik.
 - No other process on the Kubernetes nodes is already binding host ports `80` or `443`.
 - Your GitHub Actions runner can SSH to `10.11.11.31:22` as `root`.
 - `kubectl` is already installed on `10.11.11.31`.
 - `/etc/kubernetes/admin.conf` exists on `10.11.11.31` for cluster access.
+- Your nodes have writable disk space available under `/opt/local-path-provisioner`.
 
 ## Risks And Safety Notes
 
@@ -46,12 +51,14 @@ scripts/
 - The Traefik dashboard is exposed. Keep it internal or add auth before exposing it broadly.
 - HTTPS routes are enabled, but no certificate issuer is configured in this scaffold. Traefik will use its default certificate until you add a real TLS secret or cert resolver.
 - The monitoring stack installs CRDs. Deploy `monitoring` before `networking`, because `networking` creates a `VMServiceScrape`.
+- The `storage` function uses node-local storage. If the node holding a volume fails, that volume is gone until you restore from backup or recreate it.
+- The repo marks `local-path` as the default StorageClass for this cluster. If you later adopt Longhorn, Ceph, NFS CSI, or another provisioner, switch the default intentionally.
 
 ## Preconditions
 
 - `kubectl config current-context` points at the intended cluster, or set `KUBE_CONTEXT`.
 - The cluster has reachable control-plane scrape endpoints if you want full kube-apiserver/controller-manager/scheduler coverage. Some distributions need value tweaks here.
-- Persistent volumes can be provisioned for Grafana and VictoriaMetrics.
+- No existing default StorageClass is required; this repo now provisions `local-path` itself.
 - GitHub repository secrets are configured:
   - `SSH_PRIVATE_KEY_B64`
 - Optional GitHub repository or environment variable:
@@ -65,8 +72,10 @@ scripts/
    - `./scripts/helm.sh template`
 2. Test in a staging cluster first:
    - Point `KUBE_CONTEXT` to staging.
-   - Deploy `monitoring` first, then `networking`.
+   - Deploy `storage` first, then `monitoring`, then `networking`.
 3. Verify before production:
+   - `kubectl get storageclass`
+   - `kubectl get pods -n local-path-storage`
    - `kubectl get pods -n monitoring`
    - `kubectl get pods -n networking`
    - `kubectl get ingressroute,middleware -n networking`
@@ -82,18 +91,23 @@ scripts/
 ## Backups And Rollback
 
 - Export current release values before changing production:
+  - `helm get values storage -n local-path-storage -o yaml > storage.backup.yaml`
   - `helm get values monitoring -n monitoring -o yaml > monitoring.backup.yaml`
   - `helm get values networking -n networking -o yaml > networking.backup.yaml`
 - Confirm the remote node can still reach the API server before you start the workflow:
   - `ssh root@10.11.11.31 KUBECONFIG=/etc/kubernetes/admin.conf kubectl cluster-info`
 - Roll back a failed deployment:
+  - `helm rollback storage -n local-path-storage`
   - `helm rollback monitoring -n monitoring`
   - `helm rollback networking -n networking`
 - The deploy helper uses `--atomic`, so Helm will auto-rollback on failed upgrades.
+- Do not uninstall `storage` while PVCs or PVs created by `local-path` still exist.
 
 ## Monitoring After Deployment
 
 - Watch `kubectl get pods -A --watch` during the first rollout.
+- Check the storage provisioner logs:
+  - `kubectl logs -n local-path-storage deploy/storage-storage-provisioner`
 - Check Traefik logs:
   - `kubectl logs -n networking ds/networking-traefik`
 - Check vmagent targets and Grafana datasource health after the first sync.
@@ -103,6 +117,7 @@ scripts/
 - Pull requests run validation only.
 - `main` runs validation and then deploys over SSH from the GitHub Actions runner to `10.11.11.31`.
 - Helm is installed only when missing, both on the runner and on the remote node.
+- Deploy order is `storage`, then `monitoring`, then `networking`.
 - The workflow expects:
   - `SSH_PRIVATE_KEY_B64` to contain the base64-encoded private key for `root@10.11.11.31`
   - Optional `KUBE_CONTEXT` if the node has multiple kube contexts configured

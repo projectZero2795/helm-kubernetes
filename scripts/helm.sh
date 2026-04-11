@@ -29,10 +29,10 @@ ensure_repo() {
 usage() {
   cat <<'EOF'
 Usage:
-  ./scripts/helm.sh deps [all|monitoring|networking]
-  ./scripts/helm.sh lint [all|monitoring|networking]
-  ./scripts/helm.sh template [all|monitoring|networking]
-  ./scripts/helm.sh deploy [all|monitoring|networking]
+  ./scripts/helm.sh deps [all|storage|monitoring|networking]
+  ./scripts/helm.sh lint [all|storage|monitoring|networking]
+  ./scripts/helm.sh template [all|storage|monitoring|networking]
+  ./scripts/helm.sh deploy [all|storage|monitoring|networking]
 EOF
 }
 
@@ -40,9 +40,9 @@ targets_for() {
   local selector="${1:-all}"
   case "$selector" in
     all)
-      printf '%s\n' monitoring networking
+      printf '%s\n' storage monitoring networking
       ;;
-    monitoring|networking)
+    storage|monitoring|networking)
       printf '%s\n' "$selector"
       ;;
     *)
@@ -59,6 +59,9 @@ chart_dir() {
 
 namespace_for() {
   case "$1" in
+    storage)
+      printf '%s' local-path-storage
+      ;;
     monitoring)
       printf '%s' monitoring
       ;;

@@ -1,0 +1,7 @@
+apiVersion: v2
+name: storage
+description: Local-path dynamic storage for fresh homelab clusters.
+type: application
+version: 0.1.0
+appVersion: "0.0.32"
+
