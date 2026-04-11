@@ -5,8 +5,8 @@ image:
 
 helperPod:
   image:
-    repository: busybox
-    tag: "1.36.1"
+    repository: rancher/library-busybox
+    tag: "1.32.1"
     pullPolicy: IfNotPresent
 
 storageClass:
