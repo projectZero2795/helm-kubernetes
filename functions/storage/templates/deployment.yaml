@@ -27,6 +27,10 @@ spec:
             - start
             - --config
             - /etc/config/config.json
+            - --configmap-name
+            - {{ include "storage.fullname" . }}-config
+            - --service-account-name
+            - {{ include "storage.fullname" . }}-provisioner
           env:
             - name: POD_NAMESPACE
               valueFrom:
@@ -41,4 +45,3 @@ spec:
         - name: config-volume
           configMap:
             name: {{ include "storage.fullname" . }}-config
-
