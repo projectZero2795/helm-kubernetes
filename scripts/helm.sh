@@ -104,18 +104,43 @@ run_template() {
   done < <(targets_for "${1:-all}")
 }
 
-deploy_target() {
+run_upgrade_install() {
   local target="$1"
+  local namespace="$2"
 
   helm upgrade --install \
     "$target" \
     "$(chart_dir "$target")" \
-    --namespace "$(namespace_for "$target")" \
+    --namespace "$namespace" \
     --create-namespace \
     --wait \
     --atomic \
     --timeout "$DEFAULT_TIMEOUT" \
     --history-max 10
+}
+
+deploy_target() {
+  local target="$1"
+  local namespace
+  local output
+
+  namespace="$(namespace_for "$target")"
+
+  if output="$(run_upgrade_install "$target" "$namespace" 2>&1)"; then
+    printf '%s\n' "$output"
+    return 0
+  fi
+
+  printf '%s\n' "$output" >&2
+
+  if [[ "$output" == *"has no deployed releases"* ]]; then
+    echo "Release $target in namespace $namespace has no deployed revision. Cleaning up failed bootstrap release and retrying once." >&2
+    helm uninstall "$target" --namespace "$namespace" --wait --ignore-not-found >&2
+    run_upgrade_install "$target" "$namespace"
+    return 0
+  fi
+
+  return 1
 }
 
 run_deploy() {
