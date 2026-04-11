@@ -9,8 +9,9 @@ functions/
   monitoring/   # VictoriaMetrics-based Kubernetes monitoring
   networking/   # Traefik ingress and cross-namespace routes
 scripts/
+  install-helm.sh
   helm.sh       # deps, lint, template and deploy helper
-bitbucket-pipelines.yml
+.github/workflows/deploy.yml
 ```
 
 ## What This Deploys
@@ -35,7 +36,9 @@ bitbucket-pipelines.yml
 - Your cluster has a default `StorageClass`.
 - DNS for `traefik.renzlab.com` and `grafana.renzlab.com` points to the node IPs that will run Traefik.
 - No other process on the Kubernetes nodes is already binding host ports `80` or `443`.
-- Your Bitbucket self-hosted runner is a Linux Shell runner with `helm`, `kubectl`, and cluster access already configured.
+- Your GitHub Actions runner can SSH to `10.11.11.31:22` as `kubespray`.
+- `kubectl` is already installed on `10.11.11.31`.
+- The `kubespray` user can either access the cluster directly with `kubectl` or can use `sudo` to read `/etc/kubernetes/admin.conf`.
 
 ## Risks And Safety Notes
 
@@ -49,6 +52,11 @@ bitbucket-pipelines.yml
 - `kubectl config current-context` points at the intended cluster, or set `KUBE_CONTEXT`.
 - The cluster has reachable control-plane scrape endpoints if you want full kube-apiserver/controller-manager/scheduler coverage. Some distributions need value tweaks here.
 - Persistent volumes can be provisioned for Grafana and VictoriaMetrics.
+- GitHub repository secrets are configured:
+  - `SSH_PRIVATE_KEY`
+  - `SSH_KNOWN_HOSTS`
+- Optional GitHub repository or environment variable:
+  - `KUBE_CONTEXT`
 
 ## Safe Rollout Plan
 
@@ -65,7 +73,7 @@ bitbucket-pipelines.yml
    - `kubectl get ingressroute,middleware -n networking`
    - `kubectl get vmservicescrape -n networking`
 4. Deploy to production:
-   - `./scripts/helm.sh deploy`
+   - Run the `Homelab Helm` workflow on `main` or trigger it with `workflow_dispatch`.
 5. Verify after deployment:
    - Browse `https://traefik.renzlab.com`
    - Browse `https://grafana.renzlab.com`
@@ -77,6 +85,8 @@ bitbucket-pipelines.yml
 - Export current release values before changing production:
   - `helm get values monitoring -n monitoring -o yaml > monitoring.backup.yaml`
   - `helm get values networking -n networking -o yaml > networking.backup.yaml`
+- Confirm the remote node can still reach the API server before you start the workflow:
+  - `ssh kubespray@10.11.11.31 kubectl cluster-info`
 - Roll back a failed deployment:
   - `helm rollback monitoring -n monitoring`
   - `helm rollback networking -n networking`
@@ -89,9 +99,13 @@ bitbucket-pipelines.yml
   - `kubectl logs -n networking ds/networking-traefik`
 - Check vmagent targets and Grafana datasource health after the first sync.
 
-## Bitbucket Pipeline
+## GitHub Actions
 
 - Pull requests run validation only.
-- `main` runs validation and then deploys to the cluster from the self-hosted runner.
-- If you use a Docker-based runner instead of a Linux Shell runner, adjust `bitbucket-pipelines.yml` to provide an image plus kubeconfig injection.
-
+- `main` runs validation and then deploys over SSH from the GitHub Actions runner to `10.11.11.31`.
+- Helm is installed only when missing, both on the runner and on the remote node.
+- The workflow expects:
+  - `SSH_PRIVATE_KEY` to contain the private key for `kubespray@10.11.11.31`
+  - `SSH_KNOWN_HOSTS` to contain the host key entry for `10.11.11.31`
+  - Optional `KUBE_CONTEXT` if the node has multiple kube contexts configured
+- If `kubectl` does not work for `kubespray`, the workflow falls back to `sudo` with `KUBECONFIG=/etc/kubernetes/admin.conf`.

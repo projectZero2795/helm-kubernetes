@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEFAULT_TIMEOUT="${HELM_TIMEOUT:-15m0s}"
 HELM_WORKDIR="${ROOT_DIR}/.tmp/helm"
 
+export PATH="${HOME}/.local/bin:${PATH}"
 export HELM_CONFIG_HOME="${HELM_CONFIG_HOME:-${HELM_WORKDIR}/config}"
 export HELM_CACHE_HOME="${HELM_CACHE_HOME:-${HELM_WORKDIR}/cache}"
 export HELM_DATA_HOME="${HELM_DATA_HOME:-${HELM_WORKDIR}/data}"
