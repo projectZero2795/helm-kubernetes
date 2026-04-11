@@ -119,10 +119,55 @@ run_upgrade_install() {
     --history-max 10
 }
 
+release_status() {
+  local target="$1"
+  local namespace="$2"
+
+  helm status "$target" --namespace "$namespace" 2>/dev/null | awk '/^STATUS:/ {print $2; exit}'
+}
+
+last_deployed_revision() {
+  local target="$1"
+  local namespace="$2"
+
+  helm history "$target" --namespace "$namespace" 2>/dev/null | awk 'NR > 1 && $3 == "deployed" {rev=$1} END {print rev}'
+}
+
+recover_locked_release() {
+  local target="$1"
+  local namespace="$2"
+  local status
+  local deployed_revision
+
+  status="$(release_status "$target" "$namespace")"
+
+  case "$status" in
+    pending-install)
+      echo "Release $target in namespace $namespace is stuck in pending-install. Uninstalling the failed release before retry." >&2
+      helm uninstall "$target" --namespace "$namespace" --wait --ignore-not-found >&2
+      ;;
+    pending-upgrade|pending-rollback)
+      deployed_revision="$(last_deployed_revision "$target" "$namespace")"
+      if [[ -n "$deployed_revision" ]]; then
+        echo "Release $target in namespace $namespace is stuck in $status. Rolling back to deployed revision $deployed_revision before retry." >&2
+        helm rollback "$target" "$deployed_revision" --namespace "$namespace" --wait >&2
+      else
+        echo "Release $target in namespace $namespace is stuck in $status with no deployed revision. Uninstalling before retry." >&2
+        helm uninstall "$target" --namespace "$namespace" --wait --ignore-not-found >&2
+      fi
+      ;;
+    *)
+      echo "Release $target in namespace $namespace is locked, but Helm reports status '${status:-unknown}'. Refusing automatic recovery." >&2
+      return 1
+      ;;
+  esac
+}
+
 deploy_target() {
   local target="$1"
   local namespace
   local output
+  local retry
 
   namespace="$(namespace_for "$target")"
 
@@ -138,6 +183,27 @@ deploy_target() {
     helm uninstall "$target" --namespace "$namespace" --wait --ignore-not-found >&2
     run_upgrade_install "$target" "$namespace"
     return 0
+  fi
+
+  if [[ "$output" == *"another operation (install/upgrade/rollback) is in progress"* ]]; then
+    for retry in 1 2 3; do
+      echo "Release $target in namespace $namespace is locked by another Helm operation. Waiting 15 seconds before retry $retry/3." >&2
+      sleep 15
+      if output="$(run_upgrade_install "$target" "$namespace" 2>&1)"; then
+        printf '%s\n' "$output"
+        return 0
+      fi
+      printf '%s\n' "$output" >&2
+      if [[ "$output" != *"another operation (install/upgrade/rollback) is in progress"* ]]; then
+        break
+      fi
+    done
+
+    if [[ "$output" == *"another operation (install/upgrade/rollback) is in progress"* ]]; then
+      recover_locked_release "$target" "$namespace"
+      run_upgrade_install "$target" "$namespace"
+      return 0
+    fi
   fi
 
   return 1
