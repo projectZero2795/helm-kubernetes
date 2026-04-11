@@ -57,6 +57,20 @@ chart_dir() {
   printf '%s/functions/%s' "$ROOT_DIR" "$1"
 }
 
+timeout_for() {
+  case "$1" in
+    monitoring)
+      printf '%s' "${HELM_TIMEOUT_MONITORING:-30m0s}"
+      ;;
+    networking)
+      printf '%s' "${HELM_TIMEOUT_NETWORKING:-30m0s}"
+      ;;
+    *)
+      printf '%s' "$DEFAULT_TIMEOUT"
+      ;;
+  esac
+}
+
 namespace_for() {
   case "$1" in
     storage)
@@ -107,6 +121,9 @@ run_template() {
 run_upgrade_install() {
   local target="$1"
   local namespace="$2"
+  local timeout
+
+  timeout="$(timeout_for "$target")"
 
   helm upgrade --install \
     "$target" \
@@ -115,7 +132,7 @@ run_upgrade_install() {
     --create-namespace \
     --wait \
     --atomic \
-    --timeout "$DEFAULT_TIMEOUT" \
+    --timeout "$timeout" \
     --history-max 10
 }
 

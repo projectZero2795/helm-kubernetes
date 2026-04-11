@@ -1,4 +1,9 @@
 traefik:
+  image:
+    registry: mirror.gcr.io
+    repository: traefik
+    pullPolicy: IfNotPresent
+
   gateway:
     enabled: false
 
@@ -17,6 +22,16 @@ traefik:
 
   deployment:
     kind: DaemonSet
+
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: DoesNotExist
+              - key: node-role.kubernetes.io/master
+                operator: DoesNotExist
 
   tolerations:
     - key: node-role.kubernetes.io/control-plane
