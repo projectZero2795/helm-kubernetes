@@ -29,6 +29,12 @@ victoria-metrics-k8s-stack:
   grafana:
     enabled: true
     fullnameOverride: grafana
+    initChownData:
+      image:
+        registry: docker.io
+        repository: rancher/library-busybox
+        tag: "1.32.1"
+        pullPolicy: IfNotPresent
     persistence:
       enabled: true
       storageClassName: local-path
