@@ -8,6 +8,12 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      force_deploy_all:
+        description: Deploy all functions even if no chart changes are detected
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -23,10 +29,17 @@ env:
 
 jobs:
   validate:
-    name: Validate Helm Charts
+    name: Validate ${{ matrix.target }}
     runs-on:
       - self-hosted
       - linux
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - storage
+          - monitoring
+          - networking
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -38,18 +51,100 @@ jobs:
           ./scripts/install-helm.sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Validate charts
+      - name: Validate target
         shell: bash
         run: |
           set -euo pipefail
-          ./scripts/helm.sh deps
-          ./scripts/helm.sh lint
-          ./scripts/helm.sh template
+          ./scripts/helm.sh deps "${{ matrix.target }}"
+          ./scripts/helm.sh lint "${{ matrix.target }}"
+          ./scripts/helm.sh template "${{ matrix.target }}"
 
-  deploy:
-    name: Deploy To Kubernetes
+  detect_changes:
+    name: Detect Deployment Changes
     if: github.event_name != 'pull_request'
-    needs: validate
+    runs-on:
+      - self-hosted
+      - linux
+    outputs:
+      storage: ${{ steps.detect.outputs.storage }}
+      monitoring: ${{ steps.detect.outputs.monitoring }}
+      networking: ${{ steps.detect.outputs.networking }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed functions
+        id: detect
+        shell: bash
+        env:
+          EVENT_BEFORE: ${{ github.event.before }}
+          FORCE_DEPLOY_ALL: ${{ github.event.inputs.force_deploy_all || 'false' }}
+        run: |
+          set -euo pipefail
+
+          storage=false
+          monitoring=false
+          networking=false
+
+          if [[ "${FORCE_DEPLOY_ALL}" == "true" ]]; then
+            storage=true
+            monitoring=true
+            networking=true
+          else
+            changed_files=""
+
+            if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+              if [[ -n "${EVENT_BEFORE}" && ! "${EVENT_BEFORE}" =~ ^0+$ ]]; then
+                changed_files="$(git diff --name-only "${EVENT_BEFORE}" "${GITHUB_SHA}")"
+              else
+                storage=true
+                monitoring=true
+                networking=true
+              fi
+            elif git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+              changed_files="$(git diff --name-only HEAD^ HEAD)"
+            else
+              storage=true
+              monitoring=true
+              networking=true
+            fi
+
+            if [[ -n "${changed_files}" ]]; then
+              while IFS= read -r file; do
+                case "${file}" in
+                  functions/storage/*)
+                    storage=true
+                    ;;
+                  functions/monitoring/*)
+                    monitoring=true
+                    ;;
+                  functions/networking/*)
+                    networking=true
+                    ;;
+                esac
+              done <<< "${changed_files}"
+            fi
+          fi
+
+          echo "storage=${storage}" >> "$GITHUB_OUTPUT"
+          echo "monitoring=${monitoring}" >> "$GITHUB_OUTPUT"
+          echo "networking=${networking}" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Deployment Targets"
+            echo "- storage: ${storage}"
+            echo "- monitoring: ${monitoring}"
+            echo "- networking: ${networking}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy_storage:
+    name: Deploy Storage
+    if: github.event_name != 'pull_request' && needs.detect_changes.outputs.storage == 'true'
+    needs:
+      - validate
+      - detect_changes
     runs-on:
       - self-hosted
       - linux
@@ -92,7 +187,7 @@ jobs:
       - name: Upload repository to the control-plane node
         shell: bash
         env:
-          REMOTE_DIR: /tmp/homelab-helm/${{ github.run_id }}-${{ github.sha }}
+          REMOTE_DIR: /tmp/homelab-helm/${{ github.run_id }}-${{ github.sha }}-storage
         run: |
           set -euo pipefail
 
@@ -109,10 +204,10 @@ jobs:
               "$DEPLOY_USER@$DEPLOY_HOST" \
               "set -euo pipefail; rm -rf '$REMOTE_DIR'; mkdir -p '$REMOTE_DIR'; tar -xzf - -C '$REMOTE_DIR'"
 
-      - name: Deploy from the control-plane node
+      - name: Deploy storage from the control-plane node
         shell: bash
         env:
-          REMOTE_DIR: /tmp/homelab-helm/${{ github.run_id }}-${{ github.sha }}
+          REMOTE_DIR: /tmp/homelab-helm/${{ github.run_id }}-${{ github.sha }}-storage
           KUBE_CONTEXT: ${{ vars.KUBE_CONTEXT }}
         run: |
           set -euo pipefail
@@ -134,7 +229,7 @@ jobs:
 
           cd "$REMOTE_DIR"
           ./scripts/install-helm.sh
-          ./scripts/helm.sh deps
+          ./scripts/helm.sh deps storage
 
           if ! command -v kubectl >/dev/null 2>&1; then
             echo "kubectl is required on $HOSTNAME to deploy this repository." >&2
@@ -148,5 +243,271 @@ jobs:
 
           export KUBE_CONTEXT
           kubectl cluster-info >/dev/null
-          ./scripts/helm.sh deploy
+          ./scripts/helm.sh deploy storage
           EOF
+
+      - name: Remove remote workspace
+        if: always()
+        shell: bash
+        env:
+          REMOTE_DIR: /tmp/homelab-helm/${{ github.run_id }}-${{ github.sha }}-storage
+        run: |
+          set -euo pipefail
+          ssh \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=accept-new \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -p "$DEPLOY_PORT" \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "rm -rf '$REMOTE_DIR'"
+
+  deploy_networking:
+    name: Deploy Networking
+    if: github.event_name != 'pull_request' && needs.detect_changes.outputs.networking == 'true'
+    needs:
+      - validate
+      - detect_changes
+    runs-on:
+      - self-hosted
+      - linux
+    environment: production
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Ensure Helm is installed on the runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/install-helm.sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Configure SSH access
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY_B64_SECRET: ${{ secrets.SSH_PRIVATE_KEY_B64 }}
+          SSH_PRIVATE_KEY_B64_VAR: ${{ vars.SSH_PRIVATE_KEY_B64 }}
+        run: |
+          set -euo pipefail
+
+          SSH_PRIVATE_KEY_B64="${SSH_PRIVATE_KEY_B64_SECRET:-}"
+          if [[ -z "${SSH_PRIVATE_KEY_B64}" ]]; then
+            SSH_PRIVATE_KEY_B64="${SSH_PRIVATE_KEY_B64_VAR:-}"
+          fi
+
+          if [[ -z "${SSH_PRIVATE_KEY_B64}" ]]; then
+            echo "Missing required GitHub secret or variable: SSH_PRIVATE_KEY_B64" >&2
+            exit 1
+          fi
+
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s' "$SSH_PRIVATE_KEY_B64" | base64 --decode > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+          touch "$HOME/.ssh/known_hosts"
+          chmod 644 "$HOME/.ssh/known_hosts"
+
+      - name: Upload repository to the control-plane node
+        shell: bash
+        env:
+          REMOTE_DIR: /tmp/homelab-helm/${{ github.run_id }}-${{ github.sha }}-networking
+        run: |
+          set -euo pipefail
+
+          tar \
+            --exclude=.git \
+            --exclude=.github \
+            --exclude=.tmp \
+            -czf - . \
+          | ssh \
+              -o BatchMode=yes \
+              -o StrictHostKeyChecking=accept-new \
+              -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+              -p "$DEPLOY_PORT" \
+              "$DEPLOY_USER@$DEPLOY_HOST" \
+              "set -euo pipefail; rm -rf '$REMOTE_DIR'; mkdir -p '$REMOTE_DIR'; tar -xzf - -C '$REMOTE_DIR'"
+
+      - name: Deploy networking from the control-plane node
+        shell: bash
+        env:
+          REMOTE_DIR: /tmp/homelab-helm/${{ github.run_id }}-${{ github.sha }}-networking
+          KUBE_CONTEXT: ${{ vars.KUBE_CONTEXT }}
+        run: |
+          set -euo pipefail
+
+          ssh \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=accept-new \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -p "$DEPLOY_PORT" \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            bash -s -- "$REMOTE_DIR" "${KUBE_CONTEXT:-}" <<'EOF'
+          set -euo pipefail
+
+          REMOTE_DIR="$1"
+          KUBE_CONTEXT="${2:-}"
+
+          export PATH="$HOME/.local/bin:$PATH"
+          export KUBECONFIG="${KUBECONFIG:-/etc/kubernetes/admin.conf}"
+
+          cd "$REMOTE_DIR"
+          ./scripts/install-helm.sh
+          ./scripts/helm.sh deps networking
+
+          if ! command -v kubectl >/dev/null 2>&1; then
+            echo "kubectl is required on $HOSTNAME to deploy this repository." >&2
+            exit 1
+          fi
+
+          if [[ ! -f "$KUBECONFIG" ]]; then
+            echo "Expected kubeconfig at $KUBECONFIG on $HOSTNAME, but it was not found." >&2
+            exit 1
+          fi
+
+          export KUBE_CONTEXT
+          kubectl cluster-info >/dev/null
+          ./scripts/helm.sh deploy networking
+          EOF
+
+      - name: Remove remote workspace
+        if: always()
+        shell: bash
+        env:
+          REMOTE_DIR: /tmp/homelab-helm/${{ github.run_id }}-${{ github.sha }}-networking
+        run: |
+          set -euo pipefail
+          ssh \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=accept-new \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -p "$DEPLOY_PORT" \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "rm -rf '$REMOTE_DIR'"
+
+  deploy_monitoring:
+    name: Deploy Monitoring
+    if: >-
+      always() &&
+      github.event_name != 'pull_request' &&
+      needs.detect_changes.result == 'success' &&
+      needs.validate.result == 'success' &&
+      (needs.deploy_storage.result == 'success' || needs.deploy_storage.result == 'skipped') &&
+      needs.detect_changes.outputs.monitoring == 'true'
+    needs:
+      - validate
+      - detect_changes
+      - deploy_storage
+    runs-on:
+      - self-hosted
+      - linux
+    environment: production
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Ensure Helm is installed on the runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/install-helm.sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Configure SSH access
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY_B64_SECRET: ${{ secrets.SSH_PRIVATE_KEY_B64 }}
+          SSH_PRIVATE_KEY_B64_VAR: ${{ vars.SSH_PRIVATE_KEY_B64 }}
+        run: |
+          set -euo pipefail
+
+          SSH_PRIVATE_KEY_B64="${SSH_PRIVATE_KEY_B64_SECRET:-}"
+          if [[ -z "${SSH_PRIVATE_KEY_B64}" ]]; then
+            SSH_PRIVATE_KEY_B64="${SSH_PRIVATE_KEY_B64_VAR:-}"
+          fi
+
+          if [[ -z "${SSH_PRIVATE_KEY_B64}" ]]; then
+            echo "Missing required GitHub secret or variable: SSH_PRIVATE_KEY_B64" >&2
+            exit 1
+          fi
+
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s' "$SSH_PRIVATE_KEY_B64" | base64 --decode > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+          touch "$HOME/.ssh/known_hosts"
+          chmod 644 "$HOME/.ssh/known_hosts"
+
+      - name: Upload repository to the control-plane node
+        shell: bash
+        env:
+          REMOTE_DIR: /tmp/homelab-helm/${{ github.run_id }}-${{ github.sha }}-monitoring
+        run: |
+          set -euo pipefail
+
+          tar \
+            --exclude=.git \
+            --exclude=.github \
+            --exclude=.tmp \
+            -czf - . \
+          | ssh \
+              -o BatchMode=yes \
+              -o StrictHostKeyChecking=accept-new \
+              -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+              -p "$DEPLOY_PORT" \
+              "$DEPLOY_USER@$DEPLOY_HOST" \
+              "set -euo pipefail; rm -rf '$REMOTE_DIR'; mkdir -p '$REMOTE_DIR'; tar -xzf - -C '$REMOTE_DIR'"
+
+      - name: Deploy monitoring from the control-plane node
+        shell: bash
+        env:
+          REMOTE_DIR: /tmp/homelab-helm/${{ github.run_id }}-${{ github.sha }}-monitoring
+          KUBE_CONTEXT: ${{ vars.KUBE_CONTEXT }}
+        run: |
+          set -euo pipefail
+
+          ssh \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=accept-new \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -p "$DEPLOY_PORT" \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            bash -s -- "$REMOTE_DIR" "${KUBE_CONTEXT:-}" <<'EOF'
+          set -euo pipefail
+
+          REMOTE_DIR="$1"
+          KUBE_CONTEXT="${2:-}"
+
+          export PATH="$HOME/.local/bin:$PATH"
+          export KUBECONFIG="${KUBECONFIG:-/etc/kubernetes/admin.conf}"
+
+          cd "$REMOTE_DIR"
+          ./scripts/install-helm.sh
+          ./scripts/helm.sh deps monitoring
+
+          if ! command -v kubectl >/dev/null 2>&1; then
+            echo "kubectl is required on $HOSTNAME to deploy this repository." >&2
+            exit 1
+          fi
+
+          if [[ ! -f "$KUBECONFIG" ]]; then
+            echo "Expected kubeconfig at $KUBECONFIG on $HOSTNAME, but it was not found." >&2
+            exit 1
+          fi
+
+          export KUBE_CONTEXT
+          kubectl cluster-info >/dev/null
+          ./scripts/helm.sh deploy monitoring
+          EOF
+
+      - name: Remove remote workspace
+        if: always()
+        shell: bash
+        env:
+          REMOTE_DIR: /tmp/homelab-helm/${{ github.run_id }}-${{ github.sha }}-monitoring
+        run: |
+          set -euo pipefail
+          ssh \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=accept-new \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -p "$DEPLOY_PORT" \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "rm -rf '$REMOTE_DIR'"
