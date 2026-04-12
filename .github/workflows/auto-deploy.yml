@@ -1,0 +1,21 @@
+name: Homelab Helm Auto Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Call Canonical Deploy Workflow
+    uses: ./.github/workflows/deploy.yml
+    with:
+      force_deploy_all: false
+      deploy_storage: false
+      deploy_monitoring: false
+      deploy_networking: false
+      event_before: ${{ github.event.before }}
+    secrets: inherit

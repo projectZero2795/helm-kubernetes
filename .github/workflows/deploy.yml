@@ -1,10 +1,7 @@
-name: Homelab Helm
+name: Homelab Helm Deploy
 
 on:
   pull_request:
-    branches:
-      - main
-  push:
     branches:
       - main
   workflow_dispatch:
@@ -14,6 +11,43 @@ on:
         required: false
         type: boolean
         default: false
+      deploy_storage:
+        description: Manually deploy storage even if no changes are detected
+        required: false
+        type: boolean
+        default: false
+      deploy_monitoring:
+        description: Manually deploy monitoring even if no changes are detected
+        required: false
+        type: boolean
+        default: false
+      deploy_networking:
+        description: Manually deploy networking even if no changes are detected
+        required: false
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      force_deploy_all:
+        required: false
+        type: boolean
+        default: false
+      deploy_storage:
+        required: false
+        type: boolean
+        default: false
+      deploy_monitoring:
+        required: false
+        type: boolean
+        default: false
+      deploy_networking:
+        required: false
+        type: boolean
+        default: false
+      event_before:
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -79,8 +113,11 @@ jobs:
         id: detect
         shell: bash
         env:
-          EVENT_BEFORE: ${{ github.event.before }}
-          FORCE_DEPLOY_ALL: ${{ github.event.inputs.force_deploy_all || 'false' }}
+          EVENT_BEFORE: ${{ inputs.event_before || github.event.before }}
+          FORCE_DEPLOY_ALL: ${{ inputs.force_deploy_all || 'false' }}
+          MANUAL_DEPLOY_STORAGE: ${{ inputs.deploy_storage || 'false' }}
+          MANUAL_DEPLOY_MONITORING: ${{ inputs.deploy_monitoring || 'false' }}
+          MANUAL_DEPLOY_NETWORKING: ${{ inputs.deploy_networking || 'false' }}
         run: |
           set -euo pipefail
 
@@ -95,14 +132,8 @@ jobs:
           else
             changed_files=""
 
-            if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
-              if [[ -n "${EVENT_BEFORE}" && ! "${EVENT_BEFORE}" =~ ^0+$ ]]; then
-                changed_files="$(git diff --name-only "${EVENT_BEFORE}" "${GITHUB_SHA}")"
-              else
-                storage=true
-                monitoring=true
-                networking=true
-              fi
+            if [[ -n "${EVENT_BEFORE}" && ! "${EVENT_BEFORE}" =~ ^0+$ ]]; then
+              changed_files="$(git diff --name-only "${EVENT_BEFORE}" "${GITHUB_SHA}")"
             elif git rev-parse --verify HEAD^ >/dev/null 2>&1; then
               changed_files="$(git diff --name-only HEAD^ HEAD)"
             else
@@ -128,6 +159,18 @@ jobs:
             fi
           fi
 
+          if [[ "${MANUAL_DEPLOY_STORAGE}" == "true" ]]; then
+            storage=true
+          fi
+
+          if [[ "${MANUAL_DEPLOY_MONITORING}" == "true" ]]; then
+            monitoring=true
+          fi
+
+          if [[ "${MANUAL_DEPLOY_NETWORKING}" == "true" ]]; then
+            networking=true
+          fi
+
           echo "storage=${storage}" >> "$GITHUB_OUTPUT"
           echo "monitoring=${monitoring}" >> "$GITHUB_OUTPUT"
           echo "networking=${networking}" >> "$GITHUB_OUTPUT"
@@ -137,6 +180,12 @@ jobs:
             echo "- storage: ${storage}"
             echo "- monitoring: ${monitoring}"
             echo "- networking: ${networking}"
+            echo
+            echo "### Manual Overrides"
+            echo "- force_deploy_all: ${FORCE_DEPLOY_ALL}"
+            echo "- deploy_storage: ${MANUAL_DEPLOY_STORAGE}"
+            echo "- deploy_monitoring: ${MANUAL_DEPLOY_MONITORING}"
+            echo "- deploy_networking: ${MANUAL_DEPLOY_NETWORKING}"
           } >> "$GITHUB_STEP_SUMMARY"
 
   deploy_storage:

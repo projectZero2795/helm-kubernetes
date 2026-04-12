@@ -13,6 +13,7 @@ scripts/
   install-helm.sh
   helm.sh       # deps, lint, template and deploy helper
 .github/workflows/deploy.yml
+.github/workflows/auto-deploy.yml
 ```
 
 ## What This Deploys
@@ -116,10 +117,17 @@ scripts/
 ## GitHub Actions
 
 - Pull requests run validation only.
-- `main` runs validation and then deploys over SSH from the GitHub Actions runner to `10.11.11.31`.
+- The canonical deployment workflow is `.github/workflows/deploy.yml`. It supports manual `workflow_dispatch` and reusable `workflow_call`.
+- `main` uses `.github/workflows/auto-deploy.yml`, which only calls the canonical deploy workflow. Automatic deployment does not maintain a separate deployment path.
 - Helm is installed only when missing, both on the runner and on the remote node.
 - Deploy jobs are split by function. `storage` and `networking` can run independently, and `monitoring` waits for `storage` only when storage changed.
-- Deploy jobs are skipped when their function configuration did not change. Use `workflow_dispatch` with `force_deploy_all=true` to override that behavior.
+- Deploy jobs are skipped when their function configuration did not change.
+- `workflow_dispatch` can bypass change detection per function:
+  - `deploy_storage=true`
+  - `deploy_monitoring=true`
+  - `deploy_networking=true`
+- Use `workflow_dispatch` with `force_deploy_all=true` to redeploy everything regardless of changes.
+- For example, to redeploy only monitoring manually, run `Homelab Helm Deploy` with `deploy_monitoring=true`.
 - The workflow expects:
   - `SSH_PRIVATE_KEY_B64` to contain the base64-encoded private key for `root@10.11.11.31`
   - `TRAEFIK_DASHBOARD_USERS` to contain one or more `htpasswd` lines for Traefik basic auth, for example `admin:$2y$...`
