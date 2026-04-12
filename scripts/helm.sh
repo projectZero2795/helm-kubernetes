@@ -71,6 +71,17 @@ timeout_for() {
   esac
 }
 
+use_atomic_for() {
+  case "$1" in
+    monitoring)
+      return 1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
 namespace_for() {
   case "$1" in
     storage)
@@ -122,18 +133,26 @@ run_upgrade_install() {
   local target="$1"
   local namespace="$2"
   local timeout
+  local cmd
 
   timeout="$(timeout_for "$target")"
 
-  helm upgrade --install \
-    "$target" \
-    "$(chart_dir "$target")" \
-    --namespace "$namespace" \
-    --create-namespace \
-    --wait \
-    --atomic \
-    --timeout "$timeout" \
+  cmd=(
+    helm upgrade --install
+    "$target"
+    "$(chart_dir "$target")"
+    --namespace "$namespace"
+    --create-namespace
+    --wait
+    --timeout "$timeout"
     --history-max 10
+  )
+
+  if use_atomic_for "$target"; then
+    cmd+=(--atomic)
+  fi
+
+  "${cmd[@]}"
 }
 
 release_status() {
@@ -173,6 +192,12 @@ cleanup_release_state() {
 
   echo "$message" >&2
   helm uninstall "$target" --namespace "$namespace" --wait --ignore-not-found >/dev/null 2>&1 || true
+
+  if [[ "$target" == monitoring && -z "$(last_deployed_revision "$target" "$namespace")" ]]; then
+    echo "Release $target in namespace $namespace has no deployed revision. Removing stale Grafana PVC from failed bootstrap state before retry." >&2
+    kubectl delete pvc grafana --namespace "$namespace" --ignore-not-found --wait=true >/dev/null 2>&1 || true
+  fi
+
   wait_for_release_absent "$target" "$namespace"
 }
 
