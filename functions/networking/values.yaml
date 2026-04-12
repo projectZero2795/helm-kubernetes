@@ -81,8 +81,8 @@ routes:
       - websecure
     tls: {}
     auth:
-      enabled: false
-      existingSecret: ""
+      enabled: true
+      existingSecret: traefik-dashboard-auth
   grafana:
     host: grafana.renzlab.com
     entryPoints:

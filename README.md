@@ -32,7 +32,7 @@ scripts/
 - `networking`
   - Traefik as a DaemonSet
   - host ports `80` and `443`
-  - `traefik.renzlab.com` to the Traefik dashboard
+  - `traefik.renzlab.com` to the Traefik dashboard protected with basic auth
   - `grafana.renzlab.com` to Grafana in the `monitoring` namespace
   - `VMServiceScrape` for Traefik metrics
 
@@ -48,7 +48,7 @@ scripts/
 ## Risks And Safety Notes
 
 - Traefik uses host ports `80/443`, so it can conflict with anything else already listening on those ports.
-- The Traefik dashboard is exposed. Keep it internal or add auth before exposing it broadly.
+- The Traefik dashboard is protected with basic auth. Store credentials only in GitHub Secrets, not in the repository.
 - HTTPS routes are enabled, but no certificate issuer is configured in this scaffold. Traefik will use its default certificate until you add a real TLS secret or cert resolver.
 - The monitoring stack installs CRDs. Deploy `monitoring` before `networking`, because `networking` creates a `VMServiceScrape`.
 - The `storage` function uses node-local storage. If the node holding a volume fails, that volume is gone until you restore from backup or recreate it.
@@ -61,6 +61,7 @@ scripts/
 - No existing default StorageClass is required; this repo now provisions `local-path` itself.
 - GitHub repository secrets are configured:
   - `SSH_PRIVATE_KEY_B64`
+  - `TRAEFIK_DASHBOARD_USERS`
 - Optional GitHub repository or environment variable:
   - `KUBE_CONTEXT`
 
@@ -117,9 +118,11 @@ scripts/
 - Pull requests run validation only.
 - `main` runs validation and then deploys over SSH from the GitHub Actions runner to `10.11.11.31`.
 - Helm is installed only when missing, both on the runner and on the remote node.
-- Deploy order is `storage`, then `monitoring`, then `networking`.
+- Deploy jobs are split by function. `storage` and `networking` can run independently, and `monitoring` waits for `storage` only when storage changed.
+- Deploy jobs are skipped when their function configuration did not change. Use `workflow_dispatch` with `force_deploy_all=true` to override that behavior.
 - The workflow expects:
   - `SSH_PRIVATE_KEY_B64` to contain the base64-encoded private key for `root@10.11.11.31`
+  - `TRAEFIK_DASHBOARD_USERS` to contain one or more `htpasswd` lines for Traefik basic auth, for example `admin:$2y$...`
   - Optional `KUBE_CONTEXT` if the node has multiple kube contexts configured
 - The workflow uses `KUBECONFIG=/etc/kubernetes/admin.conf` on the remote node by default.
 - The workflow uses `StrictHostKeyChecking=accept-new`, so it will trust the first host key it sees and fail if the host key later changes.

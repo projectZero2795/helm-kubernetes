@@ -326,6 +326,35 @@ jobs:
               "$DEPLOY_USER@$DEPLOY_HOST" \
               "set -euo pipefail; rm -rf '$REMOTE_DIR'; mkdir -p '$REMOTE_DIR'; tar -xzf - -C '$REMOTE_DIR'"
 
+      - name: Ensure Traefik dashboard auth secret exists
+        shell: bash
+        env:
+          TRAEFIK_DASHBOARD_USERS: ${{ secrets.TRAEFIK_DASHBOARD_USERS }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${TRAEFIK_DASHBOARD_USERS:-}" ]]; then
+            echo "Missing required GitHub secret: TRAEFIK_DASHBOARD_USERS" >&2
+            exit 1
+          fi
+
+          ssh \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=accept-new \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -p "$DEPLOY_PORT" \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            'set -euo pipefail
+             export KUBECONFIG="${KUBECONFIG:-/etc/kubernetes/admin.conf}"
+             tmp_users_file="$(mktemp)"
+             trap '\''rm -f "$tmp_users_file"'\'' EXIT
+             cat > "$tmp_users_file"
+             kubectl create namespace networking --dry-run=client -o yaml | kubectl apply -f -
+             kubectl create secret generic traefik-dashboard-auth \
+               --namespace networking \
+               --from-file=users="$tmp_users_file" \
+               --dry-run=client -o yaml | kubectl apply -f -' <<< "${TRAEFIK_DASHBOARD_USERS}"
+
       - name: Deploy networking from the control-plane node
         shell: bash
         env:
