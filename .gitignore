@@ -1,6 +1,8 @@
 **/.DS_Store
 .tmp/
-functions/*/charts/
+functions/*/charts/**
+!functions/*/charts/
+!functions/*/charts/*.tgz
 functions/*/tmp/
 functions/*/values.local.yaml
 functions/*/values.secret.yaml
