@@ -105,9 +105,17 @@ set_context() {
 run_deps() {
   ensure_repo traefik https://traefik.github.io/charts
 
+  local chart
   local target
   while IFS= read -r target; do
-    helm dependency build "$(chart_dir "$target")"
+    chart="$(chart_dir "$target")"
+
+    if helm dependency list "$chart" 2>/dev/null | awk 'NR == 1 {next} {if ($4 != "ok") exit 1} END {exit 0}'; then
+      echo "Helm dependencies already vendored for $target. Skipping download."
+      continue
+    fi
+
+    helm dependency build "$chart"
   done < <(targets_for "${1:-all}")
 }
 
