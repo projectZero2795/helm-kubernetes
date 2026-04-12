@@ -6,6 +6,9 @@ victoria-metrics-k8s-stack:
       host: https://grafana.renzlab.com
       datasource: VictoriaMetrics
 
+  defaultDashboards:
+    enabled: false
+
   vmsingle:
     enabled: true
     spec:
@@ -40,6 +43,9 @@ victoria-metrics-k8s-stack:
       enabled: true
       storageClassName: local-path
       size: 10Gi
+    sidecar:
+      dashboards:
+        enabled: false
     grafana.ini:
       server:
         domain: grafana.renzlab.com
