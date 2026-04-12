@@ -30,6 +30,7 @@ victoria-metrics-k8s-stack:
     enabled: true
     fullnameOverride: grafana
     initChownData:
+      enabled: false
       image:
         registry: docker.io
         repository: rancher/library-busybox
