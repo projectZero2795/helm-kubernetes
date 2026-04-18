@@ -1,0 +1,24 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ include "networking.fullname" . }}-football-backend
+  labels:
+    {{- include "networking.labels" . | nindent 4 }}
+spec:
+  entryPoints:
+    {{- range .Values.routes.backend.entryPoints }}
+    - {{ . }}
+    {{- end }}
+  routes:
+    - match: Host(`{{ .Values.routes.backend.host }}`)
+      kind: Rule
+      services:
+        - name: {{ .Values.routes.backend.service.name }}
+          namespace: {{ .Values.routes.backend.service.namespace }}
+          port: {{ .Values.routes.backend.service.port }}
+  {{- with .Values.routes.backend.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- else }}
+  tls: {}
+  {{- end }}

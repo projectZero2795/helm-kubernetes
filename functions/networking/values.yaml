@@ -92,6 +92,24 @@ routes:
       name: grafana
       namespace: monitoring
       port: 80
+  frontend:
+    host: football-pred.renzlab.com
+    entryPoints:
+      - websecure
+    tls: {}
+    service:
+      name: frontend
+      namespace: football-prod
+      port: 80
+  backend:
+    host: api-football-pred.renzlab.com
+    entryPoints:
+      - websecure
+    tls: {}
+    service:
+      name: backend
+      namespace: football-prod
+      port: 8000
 
 monitoring:
   traefikMetrics:
