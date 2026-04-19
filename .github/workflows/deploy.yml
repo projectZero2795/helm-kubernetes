@@ -545,7 +545,7 @@ jobs:
             exit 1
           fi
 
-          ssh \
+          printf '%s' "${GRAFANA_SMTP_PASSWORD}" | tr -d '[:space:]' | ssh \
             -o BatchMode=yes \
             -o StrictHostKeyChecking=accept-new \
             -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
@@ -553,12 +553,15 @@ jobs:
             "$DEPLOY_USER@$DEPLOY_HOST" \
             'set -euo pipefail
              export KUBECONFIG="${KUBECONFIG:-/etc/kubernetes/admin.conf}"
+             tmp_password_file="$(mktemp)"
+             trap '\''rm -f "$tmp_password_file"'\'' EXIT
+             cat > "$tmp_password_file"
              kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
              kubectl create secret generic grafana-smtp \
                --namespace monitoring \
                --from-literal=user=projectzero2795@gmail.com \
-               --from-literal=password="$1" \
-               --dry-run=client -o yaml | kubectl apply -f -' _ "${GRAFANA_SMTP_PASSWORD}"
+               --from-file=password="$tmp_password_file" \
+               --dry-run=client -o yaml | kubectl apply -f -'
 
       - name: Deploy monitoring from the control-plane node
         shell: bash
