@@ -50,6 +50,7 @@ scripts/
 
 - Traefik uses host ports `80/443`, so it can conflict with anything else already listening on those ports.
 - The Traefik dashboard is protected with basic auth. Store credentials only in GitHub Secrets, not in the repository.
+- Grafana SMTP is configured for Gmail. Store only the Gmail app password in GitHub Secrets, not in the repository.
 - HTTPS routes are enabled, but no certificate issuer is configured in this scaffold. Traefik will use its default certificate until you add a real TLS secret or cert resolver.
 - The monitoring stack installs CRDs. Deploy `monitoring` before `networking`, because `networking` creates a `VMServiceScrape`.
 - The `storage` function uses node-local storage. If the node holding a volume fails, that volume is gone until you restore from backup or recreate it.
@@ -63,6 +64,7 @@ scripts/
 - GitHub repository secrets are configured:
   - `SSH_PRIVATE_KEY_B64`
   - `TRAEFIK_DASHBOARD_USERS`
+  - `GRAFANA_SMTP_PASSWORD`
 - Optional GitHub repository or environment variable:
   - `KUBE_CONTEXT`
 
@@ -131,6 +133,8 @@ scripts/
 - The workflow expects:
   - `SSH_PRIVATE_KEY_B64` to contain the base64-encoded private key for `root@10.11.11.31`
   - `TRAEFIK_DASHBOARD_USERS` to contain one or more `htpasswd` lines for Traefik basic auth, for example `admin:$2y$...`
+  - `GRAFANA_SMTP_PASSWORD` to contain the Gmail app password used by Grafana SMTP
   - Optional `KUBE_CONTEXT` if the node has multiple kube contexts configured
 - The workflow uses `KUBECONFIG=/etc/kubernetes/admin.conf` on the remote node by default.
 - The workflow uses `StrictHostKeyChecking=accept-new`, so it will trust the first host key it sees and fail if the host key later changes.
+- Grafana SMTP is configured with `smtp.gmail.com:587`, sender `projectzero2795@gmail.com`, and display name `Renz Beltran`.

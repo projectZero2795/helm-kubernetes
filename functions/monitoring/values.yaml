@@ -32,6 +32,8 @@ victoria-metrics-k8s-stack:
   grafana:
     enabled: true
     fullnameOverride: grafana
+    smtp:
+      existingSecret: grafana-smtp
     initChownData:
       enabled: false
       image:
@@ -50,6 +52,13 @@ victoria-metrics-k8s-stack:
       server:
         domain: grafana.renzlab.com
         root_url: https://grafana.renzlab.com
+      smtp:
+        enabled: true
+        host: smtp.gmail.com:587
+        from_address: projectzero2795@gmail.com
+        from_name: Renz Beltran
+        skip_verify: false
+        startTLS_policy: MandatoryStartTLS
     ingress:
       enabled: false
       hosts:
