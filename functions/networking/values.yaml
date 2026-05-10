@@ -110,6 +110,31 @@ routes:
       name: backend
       namespace: football-prod
       port: 8000
+  palengkeFrontend:
+    host: palengke.es
+    priority: 10
+    entryPoints:
+      - websecure
+    tls: {}
+    service:
+      name: frontend
+      namespace: palengke-prod
+      port: 3000
+  palengkeBackend:
+    host: palengke.es
+    pathPrefix: /api/backend
+    priority: 100
+    entryPoints:
+      - websecure
+    tls: {}
+    stripPrefix:
+      enabled: true
+      prefixes:
+        - /api/backend
+    service:
+      name: backend
+      namespace: palengke-prod
+      port: 8000
 
 monitoring:
   traefikMetrics:

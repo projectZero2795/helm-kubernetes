@@ -1,0 +1,27 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ include "networking.fullname" . }}-palengke-frontend
+  labels:
+    {{- include "networking.labels" . | nindent 4 }}
+spec:
+  entryPoints:
+    {{- range .Values.routes.palengkeFrontend.entryPoints }}
+    - {{ . }}
+    {{- end }}
+  routes:
+    - match: Host(`{{ .Values.routes.palengkeFrontend.host }}`)
+      kind: Rule
+      {{- with .Values.routes.palengkeFrontend.priority }}
+      priority: {{ . }}
+      {{- end }}
+      services:
+        - name: {{ .Values.routes.palengkeFrontend.service.name }}
+          namespace: {{ .Values.routes.palengkeFrontend.service.namespace }}
+          port: {{ .Values.routes.palengkeFrontend.service.port }}
+  {{- with .Values.routes.palengkeFrontend.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- else }}
+  tls: {}
+  {{- end }}

@@ -35,11 +35,13 @@ scripts/
   - host ports `80` and `443`
   - `traefik.renzlab.com` to the Traefik dashboard protected with basic auth
   - `grafana.renzlab.com` to Grafana in the `monitoring` namespace
+  - `palengke.es` to the Palengke frontend in the `palengke-prod` namespace
+  - `palengke.es/api/backend/*` to the Palengke backend in the `palengke-prod` namespace with `/api/backend` stripped before forwarding
   - `VMServiceScrape` for Traefik metrics
 
 ## Assumptions
 
-- DNS for `traefik.renzlab.com` and `grafana.renzlab.com` points to the node IPs that will run Traefik.
+- DNS for `traefik.renzlab.com`, `grafana.renzlab.com`, and `palengke.es` points to the node IPs that will run Traefik.
 - No other process on the Kubernetes nodes is already binding host ports `80` or `443`.
 - Your GitHub Actions runner can SSH to `10.11.11.31:22` as `root`.
 - `kubectl` is already installed on `10.11.11.31`.
@@ -89,6 +91,8 @@ scripts/
 5. Verify after deployment:
    - Browse `https://traefik.renzlab.com`
    - Browse `https://grafana.renzlab.com`
+   - Browse `https://palengke.es`
+   - Confirm `https://palengke.es/api/backend/health` returns the Palengke backend health response
    - Confirm Grafana datasource `VictoriaMetrics` is healthy
    - Confirm Traefik metrics appear in Grafana
 

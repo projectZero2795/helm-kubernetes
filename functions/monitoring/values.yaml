@@ -25,6 +25,7 @@ victoria-metrics-k8s-stack:
   vmagent:
     enabled: true
     spec:
+      replicaCount: 1
       scrapeInterval: 30s
       externalLabels:
         cluster: renzlab-homelab
@@ -32,6 +33,13 @@ victoria-metrics-k8s-stack:
   grafana:
     enabled: true
     fullnameOverride: grafana
+    env:
+      GF_SMTP_ENABLED: "true"
+      GF_SMTP_HOST: smtp.gmail.com:587
+      GF_SMTP_FROM_ADDRESS: projectzero2795@gmail.com
+      GF_SMTP_FROM_NAME: Renz Beltran
+      GF_SMTP_SKIP_VERIFY: "false"
+      GF_SMTP_STARTTLS_POLICY: MandatoryStartTLS
     smtp:
       existingSecret: grafana-smtp
     initChownData:
@@ -52,13 +60,6 @@ victoria-metrics-k8s-stack:
       server:
         domain: grafana.renzlab.com
         root_url: https://grafana.renzlab.com
-      smtp:
-        enabled: true
-        host: smtp.gmail.com:587
-        from_address: projectzero2795@gmail.com
-        from_name: Renz Beltran
-        skip_verify: false
-        startTLS_policy: MandatoryStartTLS
     ingress:
       enabled: false
       hosts:
